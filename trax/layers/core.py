@@ -46,7 +46,8 @@ class Dense(base.Layer):
                n_units,
                kernel_initializer=init.GlorotUniformInitializer(),
                bias_initializer=init.RandomNormalInitializer(1e-6),
-               use_bias=True):
+               use_bias=True,
+               n_modules=1):
     """Returns a dense (fully connected) layer of width `n_units`.
 
     A dense layer maps collections of `R^m` vectors to `R^n`, where `n`
@@ -62,12 +63,17 @@ class Dense(base.Layer):
           bias weights `b` for the layer.
       use_bias: If `True`, compute an affine map `y = Wx + b`; else compute
           a linear map `y = Wx`.
+      n_modules: How many local modules to use. The layer essentially splits
+          the input vector in n_modules, and computes a standard Dense layer
+          for each module separately.
     """
     super().__init__(name=f'Dense_{n_units}')
     self._n_units = n_units
     self._kernel_initializer = kernel_initializer
     self._bias_initializer = bias_initializer
     self._use_bias = use_bias
+    self._n_modules = n_modules
+    assert self._n_units % self._n_modules == 0
 
   def forward(self, x):
     """Executes this layer as part of a forward pass through the model.
@@ -85,10 +91,19 @@ class Dense(base.Layer):
         raise ValueError(f'Weights should be a (w, b) tuple or list; '
                          f'instead got: {self.weights}')
       w, b = self.weights
-      return jnp.dot(x, w) + b  # Affine map.
     else:
       w = self.weights
-      return jnp.dot(x, w)  # Linear map.
+
+    if self._n_modules == 1:
+      linear_result = jnp.dot(x, w)
+    else:
+      linear_result = jnp.einsum(
+          '...mp,mpd->...md', x.reshape(x.shape[:-1]+(self._n_modules, -1)), w
+          ).reshape(x.shape[:-1]+(-1,))
+    if self._use_bias:
+      return linear_result + b
+    else:
+      return linear_result
 
   def init_weights_and_state(self, input_signature):
     """Randomly initializes this layer's weights.
@@ -100,7 +115,12 @@ class Dense(base.Layer):
       input_signature: `ShapeDtype` instance characterizing the input this layer
           should compute on.
     """
-    shape_w = (input_signature.shape[-1], self._n_units)
+    if self._n_modules == 1:
+      shape_w = (input_signature.shape[-1], self._n_units)
+    else:
+      assert input_signature.shape[-1] % self._n_modules == 0
+      shape_w = (self._n_modules, input_signature.shape[-1]/self._n_modules,
+                 self._n_units/self._n_modules)
     shape_b = (self._n_units,)
     rng_w, rng_b = fastmath.random.split(self.rng, 2)
     w = self._kernel_initializer(shape_w, rng_w)

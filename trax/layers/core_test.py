@@ -90,6 +90,25 @@ class DenseTest(absltest.TestCase):
     y = layer(x, weights=w)
     self.assertEqual(y.tolist(), [253, 456, 653, 856])
 
+  def test_call_modular_no_bias(self):
+    layer = tl.Dense(4, n_modules=2, use_bias=False)
+    x = np.array([2, 4, 1, 3])
+    _, _ = layer.init(shapes.signature(x))
+
+    w = np.array([[[10, 20], [1, 2]], [[20, 30], [3, 2]]])
+    y = layer(x, weights=w)
+    self.assertEqual(y.tolist(), [24, 48, 29, 36])
+
+  def test_call_modular_bias(self):
+    layer = tl.Dense(4, n_modules=2)
+    x = np.array([2, 4, 1, 3])
+    _, _ = layer.init(shapes.signature(x))
+
+    w = np.array([[[10, 20], [1, 2]], [[20, 30], [3, 2]]])
+    b = np.array([100, 200, 300, 400])
+    y = layer(x, weights=(w, b))
+    self.assertEqual(y.tolist(), [124, 248, 329, 436])
+
   def test_new_weights_use_bias(self):
     layer = tl.Dense(4)
     x = np.array([1, 2])
