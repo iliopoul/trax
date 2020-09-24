@@ -581,6 +581,27 @@ class Cond(base.Layer):
 
 
 # pylint: disable=invalid-name
+def Chunk(layer, chunk_size):
+  """Executes `layer` using batch chunks of size `chunk_size` to save memory."""
+  if chunk_size < 1:
+    return layer
+  def reshape_to_chunks(x):
+    chunk_batch = x.shape[0]
+    if chunk_batch % chunk_size != 0:
+      raise ValueError(f'Chunk size {chunk_size} must divide batch '
+                       f'size {chunk_batch}')
+    n_chunks = chunk_batch // chunk_size
+    return jnp.reshape(x, [n_chunks, chunk_size] + list(x.shape[1:]))
+  def reshape_from_chunks(x):
+    batch_size = x.shape[0] * x.shape[1]
+    return jnp.reshape(x, [batch_size] + list(x.shape[2:]))
+  return Serial(
+      base.Fn('ReshapeToChunks', reshape_to_chunks),
+      Scan(layer, axis=0, n_carry=0, remat=True),
+      base.Fn('ReshapeFromChunks', reshape_from_chunks),
+  )
+
+
 def Branch(*layers, name='Branch'):
   """Combinator that applies a list of layers in parallel to copies of inputs.
 
